@@ -1,0 +1,113 @@
+image: docker:git
+services:
+  - docker:dind
+
+stages:
+  - build
+  - test
+  - package
+  - deploy-first
+  - deploy
+  - healthcheck-on  
+
+variables:
+
+  CI_REGISTRY_USER: imagesoftprojetos
+  CI_REGISTRY_PASSWORD: Project@123#
+  NAME_PROJECT: spring-boot-swagger2
+  TAG: 0.0.1-SNAPSHOT
+  CONTAINER_TEST_IMAGE: index.docker.io/$CI_REGISTRY_USER/$NAME_PROJECT:$TAG
+  CONTAINER_RELEASE_IMAGE: index.docker.io/$CI_REGISTRY_USER/$NAME_PROJECT:$TAG
+  CI_REGISTRY: docker.io
+  CI_REGISTRY_IMAGE: index.docker.io/$CI_REGISTRY_USER/$NAME_PROJECT:$TAG
+
+
+maven-build:
+  image: maven:3-jdk-14
+  stage: build
+  script:
+    - mvn clean install -DskipTests
+    - mvn clean package spring-boot:repackage -DskipTests
+  artifacts:
+    paths:
+      - target/$NAME_PROJECT-$TAG.jar
+
+package:
+  image: docker:git
+  stage: package
+  script:
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
+    - docker build -t $CONTAINER_TEST_IMAGE .
+    - docker push $CONTAINER_TEST_IMAGE
+    - docker pull $CONTAINER_TEST_IMAGE
+  tags:
+    - docker
+
+maven-build-test:
+  image: maven:3-jdk-14
+  stage: test
+  script:
+    # - mvn clean install
+    - mvn verify
+  artifacts:
+  #   paths:
+  #     - target/$NAME_PROJECT-$TAG.jar
+    # when: always
+    reports:
+      junit:
+        - target/surefire-reports/TEST-*.xml
+        - target/failsafe-reports/TEST-*.xml
+  when: manual
+
+  # script:
+  #   - mvn verify
+  # artifacts:
+  #   when: always
+  #   reports:
+  #     junit:
+  #       - target/surefire-reports/TEST-*.xml
+  #       - target/failsafe-reports/TEST-*.xml
+
+
+deploy-first:
+  stage: deploy-first
+  image: alpine
+  before_script:
+    - apk add openssh-client
+    - eval $(ssh-agent -s)
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+  script:
+    - scp -o StrictHostKeyChecking=no target/$NAME_PROJECT-$TAG.jar centos@ec2-34-204-176-142.compute-1.amazonaws.com
+    - ssh -o StrictHostKeyChecking=no centos@ec2-34-204-176-142.compute-1.amazonaws.com " docker run --publish 8010:8090 --detach --name spring-boot-swagger2 imagesoftprojetos/spring-boot-swagger2:0.0.1-SNAPSHOT"
+  when: manual
+
+deploy:
+  stage: deploy
+  image: alpine
+  before_script:
+    - apk add openssh-client
+    - eval $(ssh-agent -s)
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+  script:
+    - scp -o StrictHostKeyChecking=no target/$NAME_PROJECT-$TAG.jar centos@ec2-34-204-176-142.compute-1.amazonaws.com
+    - ssh -o StrictHostKeyChecking=no centos@ec2-34-204-176-142.compute-1.amazonaws.com " docker stop spring-boot-swagger2  && 
+      docker container stop spring-boot-swagger2 && 
+      docker rm spring-boot-swagger2 && 
+      docker image rm imagesoftprojetos/spring-boot-swagger2:0.0.1-SNAPSHOT && 
+      docker run --publish 8080:8010  --detach --name spring-boot-swagger2 imagesoftprojetos/spring-boot-swagger2:0.0.1-SNAPSHOT"
+
+run_checkly_on:
+  stage: healthcheck-on
+  image: curlimages/curl
+  script:
+    - echo "Deployment finished."
+    # Call Checkly trigger
+    - curl "http://ec2-34-204-176-142.compute-1.amazonaws.com:8080/swagger-document/healthcheck" > $PWD/checkly.txt
+    - cat $PWD/checkly.txt
+    # - if grep -c 'OK' $PWD/checkly.txt ; then echo "OK" ; fi
+    # # Exit with an error status if we find more than 0 "hasFailures: true" in the output
+    # - if [ $(grep -c 'OK' $PWD/checkly.txt) -ne 0 ]; then exit 1; fi
