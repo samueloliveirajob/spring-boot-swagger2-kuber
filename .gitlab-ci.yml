@@ -8,7 +8,7 @@ stages:
   - package
   - deploy-first
   - deploy
-  - healthcheck-on  
+  - healthcheck-on
 
 variables:
 
@@ -79,8 +79,8 @@ deploy-first:
     - mkdir -p ~/.ssh
     - chmod 700 ~/.ssh
   script:
-    - scp -o StrictHostKeyChecking=no target/$NAME_PROJECT-$TAG.jar centos@ec2-34-204-176-142.compute-1.amazonaws.com
-    - ssh -o StrictHostKeyChecking=no centos@ec2-34-204-176-142.compute-1.amazonaws.com " docker run --publish 8010:8090 --detach --name spring-boot-swagger2 imagesoftprojetos/spring-boot-swagger2:0.0.1-SNAPSHOT"
+    - scp -o StrictHostKeyChecking=no target/$NAME_PROJECT-$TAG.jar centos@ec2-3-238-182-164.compute-1.amazonaws.com
+    - ssh -o StrictHostKeyChecking=no centos@ec2-3-238-182-164.compute-1.amazonaws.com " docker pull imagesoftprojetos/spring-boot-swagger2:0.0.1-SNAPSHOT && kubectl create deployment spring-boot-swagger2 --image=imagesoftprojetos/spring-boot-swagger2:0.0.1-SNAPSHOT && kubectl expose deployment/spring-boot-swagger2 --type="LoadBalancer" --port 8010 && kubectl scale deployments/spring-boot-swagger2 --replicas=4 "
   when: manual
 
 deploy:
@@ -93,12 +93,8 @@ deploy:
     - mkdir -p ~/.ssh
     - chmod 700 ~/.ssh
   script:
-    - scp -o StrictHostKeyChecking=no target/$NAME_PROJECT-$TAG.jar centos@ec2-34-204-176-142.compute-1.amazonaws.com
-    - ssh -o StrictHostKeyChecking=no centos@ec2-34-204-176-142.compute-1.amazonaws.com " docker stop spring-boot-swagger2  && 
-      docker container stop spring-boot-swagger2 && 
-      docker rm spring-boot-swagger2 && 
-      docker image rm imagesoftprojetos/spring-boot-swagger2:0.0.1-SNAPSHOT && 
-      docker run --publish 8080:8010  --detach --name spring-boot-swagger2 imagesoftprojetos/spring-boot-swagger2:0.0.1-SNAPSHOT"
+    - scp -o StrictHostKeyChecking=no target/$NAME_PROJECT-$TAG.jar centos@ec2-3-238-182-164.compute-1.amazonaws.com
+    - ssh -o StrictHostKeyChecking=no centos@ec2-3-238-182-164.compute-1.amazonaws.com " docker pull imagesoftprojetos/spring-boot-swagger2:0.0.1-SNAPSHOT && kubectl set image deployments/spring-boot-swagger2 && spring-boot-swagger2=imagesoftprojetos/spring-boot-swagger2:0.0.1-SNAPSHOT && kubectl rollout status deployments/spring-boot-swagger2 && kubectl rollout restart deployments/spring-boot-swagger2"
 
 run_checkly_on:
   stage: healthcheck-on
@@ -106,7 +102,7 @@ run_checkly_on:
   script:
     - echo "Deployment finished."
     # Call Checkly trigger
-    - curl "http://ec2-34-204-176-142.compute-1.amazonaws.com:8080/swagger-document/healthcheck" > $PWD/checkly.txt
+    - curl "http://3.238.182.164:31742/swagger-document/healthcheck" > $PWD/checkly.txt
     - cat $PWD/checkly.txt
     # - if grep -c 'OK' $PWD/checkly.txt ; then echo "OK" ; fi
     # # Exit with an error status if we find more than 0 "hasFailures: true" in the output
